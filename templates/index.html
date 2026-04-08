@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Task Manager</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Mini Task Manager</h1>
+      <p>Small web app with frontend, backend, and SQLite database.</p>
+    </header>
+
+    <section class="form-card">
+      <h2>Add Task</h2>
+      <form id="taskForm">
+        <input type="text" id="title" placeholder="Task title" required />
+        <textarea id="description" placeholder="Task description"></textarea>
+        <button type="submit">Create Task</button>
+      </form>
+      <p id="message"></p>
+    </section>
+
+    <section class="list-card">
+      <div class="list-header">
+        <h2>Tasks</h2>
+        <button id="refreshBtn">Refresh</button>
+      </div>
+      <div id="taskList" class="task-list"></div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
