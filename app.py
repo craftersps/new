@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import sqlite3
 import os
 from pathlib import Path
+from html import escape
 
 app = Flask(__name__)
 
@@ -118,6 +119,57 @@ def delete_task(task_id):
 
     return jsonify({'message': 'Task deleted successfully.'})
 
+
+
+@app.route("/admin/tasks")
+def admin_tasks():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    # get column names
+    columns = [col[1] for col in cur.execute("PRAGMA table_info(tasks)").fetchall()]
+
+    # get all rows
+    rows = cur.execute("SELECT * FROM tasks ORDER BY id DESC").fetchall()
+    conn.close()
+
+    header_html = "".join(f"<th>{escape(str(col))}</th>" for col in columns)
+
+    body_html = ""
+    for row in rows:
+        body_html += "<tr>"
+        for col in columns:
+            value = row[col]
+            body_html += f"<td>{escape(str(value))}</td>"
+        body_html += "</tr>"
+
+    return f"""
+    <html>
+    <head>
+        <title>Tasks Database</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; padding: 30px; background: #f7f7f7; }}
+            h2 {{ margin-bottom: 20px; }}
+            table {{ border-collapse: collapse; width: 100%; background: white; }}
+            th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
+            th {{ background: #222; color: white; }}
+            tr:nth-child(even) {{ background: #f2f2f2; }}
+        </style>
+    </head>
+    <body>
+        <h2>Tasks Database</h2>
+        <table>
+            <thead>
+                <tr>{header_html}</tr>
+            </thead>
+            <tbody>
+                {body_html}
+            </tbody>
+        </table>
+    </body>
+    </html>
+    """
 
 if __name__ == '__main__':
     init_db()
