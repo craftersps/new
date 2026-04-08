@@ -1,5 +1,4 @@
 from flask import Flask, render_template, request, jsonify
-import sqlite3
 import os
 from pathlib import Path
 from html import escape
@@ -17,24 +16,6 @@ DB_PATH = DATA_DIR / "tasks.db"
 
 def get_conn():
     return psycopg.connect(os.environ["DATABASE_URL"])
-
-
-def init_db():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT,
-            status TEXT NOT NULL DEFAULT 'Pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        '''
-    )
-    conn.commit()
-    conn.close()
 
 
 @app.route('/')
@@ -170,6 +151,18 @@ def admin_tasks():
     </body>
     </html>
     """
+
+def init_db():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
 if __name__ == '__main__':
     init_db()
