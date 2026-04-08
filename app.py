@@ -3,6 +3,7 @@ import sqlite3
 import os
 from pathlib import Path
 from html import escape
+import psycopg
 
 app = Flask(__name__)
 
@@ -13,10 +14,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "tasks.db"
 
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+
+def get_conn():
+    return psycopg.connect(os.environ["DATABASE_URL"])
 
 
 def init_db():
