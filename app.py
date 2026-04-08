@@ -1,20 +1,27 @@
 from flask import Flask, render_template, request, jsonify
-import os
-from pathlib import Path
 from html import escape
+import os
 import psycopg
 
 app = Flask(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", BASE_DIR))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-DB_PATH = DATA_DIR / "tasks.db"
-
 
 def get_conn():
     return psycopg.connect(os.environ["DATABASE_URL"])
+
+
+def init_db():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'Pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
 
 @app.route('/')
@@ -24,12 +31,26 @@ def index():
 
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
-    conn = get_connection()
-    tasks = conn.execute(
-        'SELECT id, title, description, status, created_at FROM tasks ORDER BY id DESC'
-    ).fetchall()
-    conn.close()
-    return jsonify([dict(task) for task in tasks])
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, title, description, status, created_at
+                FROM tasks
+                ORDER BY id DESC
+            """)
+            rows = cur.fetchall()
+
+    tasks = []
+    for row in rows:
+        tasks.append({
+            'id': row[0],
+            'title': row[1],
+            'description': row[2],
+            'status': row[3],
+            'created_at': row[4].isoformat() if row[4] else None
+        })
+
+    return jsonify(tasks)
 
 
 @app.route('/api/tasks', methods=['POST'])
@@ -41,22 +62,25 @@ def create_task():
     if not title:
         return jsonify({'error': 'Title is required.'}), 400
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        'INSERT INTO tasks (title, description) VALUES (?, ?)',
-        (title, description)
-    )
-    conn.commit()
-    task_id = cursor.lastrowid
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tasks (title, description)
+                VALUES (%s, %s)
+                RETURNING id, title, description, status, created_at
+            """, (title, description))
+            row = cur.fetchone()
+        conn.commit()
 
-    task = conn.execute(
-        'SELECT id, title, description, status, created_at FROM tasks WHERE id = ?',
-        (task_id,)
-    ).fetchone()
-    conn.close()
+    task = {
+        'id': row[0],
+        'title': row[1],
+        'description': row[2],
+        'status': row[3],
+        'created_at': row[4].isoformat() if row[4] else None
+    }
 
-    return jsonify(dict(task)), 201
+    return jsonify(task), 201
 
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
@@ -67,32 +91,38 @@ def update_task(task_id):
     if new_status not in ['Pending', 'Done']:
         return jsonify({'error': 'Status must be Pending or Done.'}), 400
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('UPDATE tasks SET status = ? WHERE id = ?', (new_status, task_id))
-    conn.commit()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE tasks
+                SET status = %s
+                WHERE id = %s
+                RETURNING id, title, description, status, created_at
+            """, (new_status, task_id))
+            row = cur.fetchone()
+        conn.commit()
 
-    if cursor.rowcount == 0:
-        conn.close()
+    if row is None:
         return jsonify({'error': 'Task not found.'}), 404
 
-    task = conn.execute(
-        'SELECT id, title, description, status, created_at FROM tasks WHERE id = ?',
-        (task_id,)
-    ).fetchone()
-    conn.close()
+    task = {
+        'id': row[0],
+        'title': row[1],
+        'description': row[2],
+        'status': row[3],
+        'created_at': row[4].isoformat() if row[4] else None
+    }
 
-    return jsonify(dict(task))
+    return jsonify(task)
 
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
 def delete_task(task_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
-    conn.commit()
-    deleted = cursor.rowcount
-    conn.close()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+            deleted = cur.rowcount
+        conn.commit()
 
     if deleted == 0:
         return jsonify({'error': 'Task not found.'}), 404
@@ -100,27 +130,24 @@ def delete_task(task_id):
     return jsonify({'message': 'Task deleted successfully.'})
 
 
-
 @app.route("/admin/tasks")
 def admin_tasks():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, title, description, status, created_at
+                FROM tasks
+                ORDER BY id DESC
+            """)
+            rows = cur.fetchall()
 
-    # get column names
-    columns = [col[1] for col in cur.execute("PRAGMA table_info(tasks)").fetchall()]
-
-    # get all rows
-    rows = cur.execute("SELECT * FROM tasks ORDER BY id DESC").fetchall()
-    conn.close()
-
-    header_html = "".join(f"<th>{escape(str(col))}</th>" for col in columns)
+    columns = ["id", "title", "description", "status", "created_at"]
+    header_html = "".join(f"<th>{escape(col)}</th>" for col in columns)
 
     body_html = ""
     for row in rows:
         body_html += "<tr>"
-        for col in columns:
-            value = row[col]
+        for value in row:
             body_html += f"<td>{escape(str(value))}</td>"
         body_html += "</tr>"
 
@@ -151,20 +178,8 @@ def admin_tasks():
     </html>
     """
 
-def init_db():
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id SERIAL PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+
+init_db()
 
 if __name__ == '__main__':
-    init_db()
     app.run(debug=True)
-else:
-    init_db()
