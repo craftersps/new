@@ -13,7 +13,6 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "tasks.db"
 
 
-
 def get_conn():
     return psycopg.connect(os.environ["DATABASE_URL"])
 
